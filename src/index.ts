@@ -1,32 +1,33 @@
 /* ---------------------------------------------------------------------------
- * MCP server • package-readme  (TypeScript, full file)
+ * MCP server • package-readme
  *   • Tool:  readme  → returns README.md for npm package@version
  *   • GitHub-first lookup, npm-registry fallback
- *   • Uses the *original* low-level `Server` API, **without** zod-to-json-schema.
- * ------------------------------------------------------------------------ */
+ * ------------------------------------------------------------------------- */
 
-import { Server }                      from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport }        from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Server }               from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import fetch                           from "node-fetch";
-import { z }                           from "zod";
+import fetch from "node-fetch";
+import { z }  from "zod";
 
-/* ────────── parameter schema ──────────────────────────────────────────
- *  - We still declare a ZodObject for validation (`Params`)           .
- *  - But when describing the tool to the client we just hand          .
- *    that ZodObject directly (no JSON-Schema conversion).            */
+/* ────── 1. Parameter definition ──────────────────────────────────── */
+
+// (a) **Shape object** – the thing we expose in list-tools
 const ParamShape = {
   name   : z.string().describe('Package name, e.g. "react"'),
   version: z.string().optional()
-                   .describe('Semver (defaults to registry "latest")'),
+           .describe('Semver (defaults to registry "latest")'),
 };
-const Params       = z.object(ParamShape);
-type  ReadmeArgs   = z.infer<typeof Params>;
 
-/* ────────── helper utilities ───────────────────────────────────────── */
+// (b) Full ZodObject – only used internally for validation
+const Params      = z.object(ParamShape);
+type  ReadmeArgs  = z.infer<typeof Params>;
+
+/* ────── 2. Helper utilities ──────────────────────────────────────── */
+
 const npmMeta = (pkg: string) =>
   `https://registry.npmjs.org/${encodeURIComponent(pkg)}`;
 
@@ -44,7 +45,8 @@ const parseGithub = (url = "") => {
 const getText = async (url: string) =>
   fetch(url).then(r => (r.ok ? r.text() : null)).catch(() => null);
 
-/* ────────── core lookup • GitHub-first, npm fallback ──────────────── */
+/* ────── 3. Core lookup – GitHub-first, npm fallback ──────────────── */
+
 async function fetchReadme(pkg: string, ver?: string): Promise<string> {
   const meta: any = await fetch(npmMeta(pkg)).then(async r => {
     if (!r.ok) throw new Error(`${pkg}: registry HTTP ${r.status}`);
@@ -72,26 +74,25 @@ async function fetchReadme(pkg: string, ver?: string): Promise<string> {
   return `⚠️  README not found for ${pkg}@${version}. See ${npmPage(pkg)}`;
 }
 
-/* ────────── low-level MCP server setup ─────────────────────────────── */
+/* ────── 4. MCP server wiring ─────────────────────────────────────── */
+
 const server = new Server(
   { name: "mcp-package-readme", version: "0.1.0" },
-  { capabilities: { tools: {} } },          // minimal capabilities – only tools
+  { capabilities: { tools: {} } },
 );
 
-/* list-tools handler -------------------------------------------------- */
+/* list-tools → advertise the **shape object** */
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name       : "readme",
-      description: "Return the README markdown for npm package@version. "
-                 + "Looks on GitHub first, then falls back to the registry blob.",
-      inputSchema: Params,                    // hand the ZodObject directly ✔︎
-    },
-  ],
+  tools: [{
+    name       : "readme",
+    description: "Return the README markdown for npm package@version "
+               + "(GitHub-first, npm fallback).",
+    inputSchema: ParamShape,          // ← plain shape ✅
+  }],
 }));
 
-/* call-tool handler --------------------------------------------------- */
-server.setRequestHandler(CallToolRequestSchema, async (req) => {
+/* call-tool → validate with full `Params` */
+server.setRequestHandler(CallToolRequestSchema, async req => {
   try {
     if (req.params.name !== "readme")
       throw new Error(`Unknown tool: ${req.params.name}`);
@@ -108,7 +109,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 });
 
-/* ────────── run over stdio ─────────────────────────────────────────── */
+/* ────── 5. Run over stdio ─────────────────────────────────────────── */
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error("📦  mcp-package-readme running on stdio");
