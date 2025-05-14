@@ -1,44 +1,49 @@
-# syntax=docker/dockerfile:1
-
+# syntax=docker/dockerfile:1.6
 ###############################################################################
-# 1. builder stage – install deps, compile TS → dist/                         #
+## 1️⃣  builder stage – install deps, compile TS → dist/                     ##
 ###############################################################################
-FROM node:22.12-alpine AS builder
+ARG NODE_VERSION=22.12-alpine
+FROM node:${NODE_VERSION} AS builder
 
 WORKDIR /app
 
-# copy lock info first so the big npm layer is nicely cached
+# ---------- package install (cached) -----------------------------------------
 COPY package.json package-lock.json ./
-
-# install ALL deps (prod + dev) once, cached
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts
 
-# copy the rest of the sources only when they change
+# ---------- source copy + transpile ------------------------------------------
 COPY tsconfig.json ./
 COPY src  ./src
 COPY mcp  ./mcp
-
-# compile Typescript -> ./dist
 RUN npm run build
 
+
 ###############################################################################
-# 2. release stage – slim runtime with prod-only deps                         #
+## 2️⃣  slim runtime stage – prod-only, TLS certs, non-root                  ##
 ###############################################################################
 FROM node:22-alpine AS release
 
-WORKDIR /app
-ENV NODE_ENV=production
+# Install TLS root certs so HTTPS works, and tini for signal handling
+RUN apk add --no-cache ca-certificates tini \
+ && update-ca-certificates
 
-# bring in compiled code and lock files
+ENV NODE_ENV=production
+WORKDIR /app
+
+# ---------- copy compiled output & metadata ----------------------------------
 COPY --from=builder /app/dist              ./dist
 COPY --from=builder /app/mcp               ./mcp
 COPY package.json package-lock.json        ./
 
-# reuse node_modules from builder, then prune devDependencies
-COPY --from=builder /app/node_modules      ./node_modules
-RUN npm prune --omit=dev --ignore-scripts   # quick, no network
+# ---------- install *only* production deps (cached) --------------------------
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts --prefer-offline --no-audit
 
-# server listens on stdio, but expose a port in case you swap transports
+# ---------- drop root privileges ---------------------------------------------
+USER node
+
+# ---------- runtime ----------------------------------------------------------
 EXPOSE 8080
-ENTRYPOINT ["node", "dist/index.js"]
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "dist/index.js"]
