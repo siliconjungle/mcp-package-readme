@@ -4,17 +4,15 @@
   "description": "MCP server that returns the README.md for any npm package (GitHub first, npm fallback).",
   "type": "module",
   "license": "MIT",
-
   "bin": {
     "mcp-package-readme": "src/index.js"
   },
-
   "scripts": {
     "start": "node src/index.js"
   },
-
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.2",
+    "nanoid": "^5.1.5",
     "node-fetch": "^3.3.2",
     "zod": "^3.22.4",
     "zod-to-json-schema": "^3.23.5"
