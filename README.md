@@ -6,8 +6,5 @@ Model Context Protocol (MCP) server that returns the **README.md** for any npm p
 
 ```bash
 npm install
-npm run build
-node dist/index.js
-
-docker build -t mcp/package-readme .
-docker run -i --rm mcp/package-readme
+npm run start
+```
